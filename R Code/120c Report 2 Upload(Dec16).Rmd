@@ -1,0 +1,1407 @@
+---
+title: "120c Data Report 2"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache=TRUE, warning=FALSE)
+
+```
+
+```{r}
+#Created a global environment file from part 1, then ran questions 1-3
+
+#Then loaded global environment file from part 2 to run question 4
+```
+
+```{r}
+#libraries and source
+
+library(dplyr) ##please update it to the latest version 
+library(stringr)
+library(zoo)
+library(ggplot2)
+library(urbnmapr)
+
+#libraries from part2
+library(deSolve)
+library(mFilter)
+library(RobustGaSP)
+library(matrixStats)
+
+#libraries from final
+library(readxl)
+
+source(file = "C:/Users/David/Desktop/Pstat 120c/120c Final Project/R Code/covid-19-20201128/data_and_functions/functions_covid19.R")
+
+set.seed(1)
+
+```
+
+
+```{r}
+#Load Part 1 Environment (created by running "120c Report 2 Part 1.R")
+
+load(file = "C:/Users/David/Desktop/Pstat 120c/120c Final Project/R Code/Part1Environment(Dec16).RData")
+```
+
+1a)
+```{r}
+
+# 1a Dates national -----------------------------------------------------
+
+
+##get  dates you want to analyze  
+start_date = as.Date("2020-3-25")
+
+end_date = as.Date("2020-10-25")
+
+
+# Ntnl death/confirm -----------------------------------------------------
+
+##the deaths and confirmed cases for the state on the selected dates
+nation_death_selected = nation_death_sum[1 + which(all_dates %in% seq.Date(start_date, end_date, by=1))]
+nation_confirmed_selected = nation_confirmed_sum[which(all_dates %in% seq.Date(start_date, end_date, by=1))]
+
+nation_death_selected=as.numeric(nation_death_selected)
+nation_confirmed_selected=as.numeric(nation_confirmed_selected)
+
+##plot cumulative confirmed cases and death
+date_selected=seq.Date(start_date, end_date, by=1)
+par(mfrow=c(1,2))
+
+
+##daily increase between each date
+daily_date_selected=date_selected[2:length(date_selected)]
+
+##let's get the daily confirmed cases 
+nation_confirmed_selected_daily=nation_confirmed_selected[2:length(nation_confirmed_selected)]-nation_confirmed_selected[1:(length(nation_confirmed_selected)-1)]
+##create a data frame
+daily_confirmed_nation_df = data.frame(date = daily_date_selected, value = nation_confirmed_selected_daily)
+
+##let's get the daily death cases 
+nation_death_selected_daily=nation_death_selected[2:length(nation_death_selected)]-nation_death_selected[1:(length(nation_death_selected)-1)]
+##create a data frame
+daily_death_nation_df = data.frame(date = daily_date_selected, value = nation_death_selected_daily)
+
+
+# Ntnl confirmed graph ---------------------------------------------------
+
+
+##let's obtain a seven-day average of the smoothed version of the confirmed cases and deaths
+
+nation_confirmed_selected_daily_avg = data_seven_day_smoothing(nation_confirmed_selected_daily)
+
+daily_confirmed_nation_smoothed_df = data.frame(date = daily_date_selected, value = nation_confirmed_selected_daily_avg)
+
+nation_death_selected_daily_avg = data_seven_day_smoothing(nation_death_selected_daily)
+
+daily_death_nation_smoothed_df = data.frame(date = daily_date_selected, value = nation_death_selected_daily_avg)
+
+
+# 1.a.1 7-day avg national -------------------------------------------
+
+##plot the smoothed version 
+
+###daily confirmed cases in US
+daily_confirmed_nation_smoothed_df %>%
+  ggplot(aes(x=date, y=value)) +
+  geom_bar(stat = 'identity', color="white",  fill="#ff8540", width = 1) +
+  ylab("7-day avg daily US cases")+
+  xlab("Date")+ 
+  theme(text = element_text(size = 20),
+        legend.title = element_text(size = 15),
+        legend.text = element_text(size = 15),
+        legend.key.width=unit(1,"cm"),
+        axis.text.y = element_text(angle=90, hjust=1))
+
+
+############this is state-level positive rate
+###deal with positive rate 
+
+
+# test+ national graph --------------------------------------------------
+
+
+nation_test = covid_19_project %>%  
+  dplyr::select(date, state,totalTestResultsIncrease, positiveIncrease)
+
+
+
+nation_test_aggregated = nation_test %>%
+  group_by(date) %>%
+  summarise_each(funs(sum), positiveIncrease, totalTestResultsIncrease)
+
+
+nation_test_aggregated$positiveIncrease_7_day_avg = data_seven_day_smoothing(nation_test_aggregated$positiveIncrease)
+
+nation_test_aggregated$totalTestResultsIncrease_7_day_avg = data_seven_day_smoothing(nation_test_aggregated$totalTestResultsIncrease)
+
+nation_test_aggregated$positive_rate = nation_test_aggregated$positiveIncrease_7_day_avg / nation_test_aggregated$totalTestResultsIncrease_7_day_avg
+
+
+# ##reverse the sequence because it start from the current date
+# nation_daily_test_selected=rev(us_test_PositiveRateus_test_PositiveRate[nation_test_aggregated$date>=(start_date) & nation_test_aggregated$date<=end_date])
+
+
+###let's smooth it and get the seven day average 
+us_test_daily_test_smoothed = data_seven_day_smoothing(nation_test_aggregated$totalTestResultsIncrease)
+us_test_daily_positive_smoothed  = data_seven_day_smoothing(nation_test_aggregated$positiveIncrease)
+
+
+##note that the following sequences start from the latest day
+us_test_PositiveRate_smoothed = us_test_daily_positive_smoothed / us_test_daily_test_smoothed
+
+us_test_PositiveRate_smoothed_selected=us_test_PositiveRate_smoothed[nation_test_aggregated$date>=(start_date) & nation_test_aggregated$date<=end_date]
+
+
+# 1.a.2 7-day test+ national-------------------------------------------------------------------
+
+###plot  the smoothed positive rates 
+plot(date_selected, us_test_PositiveRate_smoothed_selected,type='l',xlab='date',ylab='7-day averaged daily positive rate')
+
+
+```
+
+
+7-day smoothed cases per capita, county-level (nation)generator
+
+```{r}
+
+# 7-day smoothed cases per capita, county-level (nation)-----------------------------------------------------------------
+
+
+date_for_map = as.Date("2020-12-14")
+
+# extract the averaged daily confirmed cases for all US counties on the selected date
+nation_daily_confirmed_avg_selected = us_daily_confirm_clean_avg[, c(1:11, 11+which(all_dates==date_for_map))]
+
+# Ratio = 7-day averaged daily confirmed cases / population
+nation_daily_confirmed_rate_avg_selected = nation_daily_confirmed_avg_selected
+nation_daily_confirmed_rate_avg_selected[,12] = nation_daily_confirmed_rate_avg_selected[,12] / nation_population
+nation_daily_confirmed_rate_avg_selected[,12][nation_daily_confirmed_rate_avg_selected[,12] == 0] = NA
+colnames(nation_daily_confirmed_rate_avg_selected)[12] = "Ratio"
+
+# joint the averaged daily confirmed cases with the shape file for all US counties
+nation_daily_confirmed_rate_avg_selected_joint <- left_join(nation_daily_confirmed_rate_avg_selected, counties, by = "county_fips")
+
+range(nation_daily_confirmed_rate_avg_selected$Ratio*100, na.rm=T)
+
+nation_daily_confirmed_rate_avg_selected_joint %>%
+  ggplot(aes(long, lat, group = group)) +
+  geom_polygon(aes(fill = (Ratio*100)), show.legend = T) +
+  geom_polygon(
+    data = urbnmapr::states, mapping = aes(x = long, y = lat, group = group),
+    fill = NA, color = 'black', size = 1
+  ) +
+  scale_fill_gradient(low = "yellow", high = "red", na.value = "grey90", trans = "log10"
+                      ###, limits = c(0.00038, 1.158)
+  )+
+  coord_map() +
+  labs(fill = expression("Ratio (%)")) +
+  ggtitle(paste0("7-day averaged daily confirmed cases / population in the U.S.", ", ", date_for_map))
+
+
+```
+
+National county-level cumulative cases per capita on date
+
+```{r}
+
+rm(nation_daily_confirmed_cumulative)
+
+date_for_map = as.Date("2020-12-14")
+
+# Create variable from US confirmed data
+nation_daily_confirmed_cumulative = us_daily_confirm_clean
+
+# Add a cumulative column at end
+nation_daily_confirmed_cumulative$Cumulative=rowSums(nation_daily_confirmed_cumulative[,13:ncol(nation_daily_confirmed_cumulative)], na.rm=T)
+
+# Add a cumulative cases / population column at end
+
+nation_daily_confirmed_cumulative$cumPerCap = nation_daily_confirmed_cumulative[,ncol(nation_daily_confirmed_cumulative)] / nation_population
+
+
+# Ratio = 7-day averaged daily confirmed cases / population
+nation_daily_confirmed_rate_avg_selected[,12] = nation_daily_confirmed_rate_avg_selected[,12] / nation_population
+
+#nation_daily_confirmed_rate_avg_selected[,12][nation_daily_confirmed_rate_avg_selected[,12] == 0] = NA
+
+colnames(nation_daily_confirmed_cumulative)[342] = "Ratio"
+
+# joint the averaged daily confirmed cases with the shape file for all US counties
+nation_daily_confirmed_cumulative <- left_join(nation_daily_confirmed_cumulative, counties, by = "county_fips")
+
+range(nation_daily_confirmed_cumulative$Ratio*100, na.rm=T)
+
+nation_daily_confirmed_rate_avg_selected_joint %>%
+  ggplot(aes(long, lat, group = group)) +
+  geom_polygon(aes(fill = (Ratio*100)), show.legend = T) +
+  geom_polygon(
+    data = urbnmapr::states, mapping = aes(x = long, y = lat, group = group),
+    fill = NA, color = 'black', size = 1
+  ) +
+  scale_fill_gradient(low = "yellow", high = "red", na.value = "grey90", trans = "sqrt"
+                      ###, limits = c(0.00038, 1.158)
+  )+
+  coord_map() +
+  labs(fill = expression("Cases per capita (%)")) +
+  ggtitle(paste0("Cumulative cases per capita (%)", ", ", date_for_map))
+
+
+```
+
+
+National county-level cumulative deaths per capita on date
+
+```{r}
+
+rm(nation_daily_death_cumulative)
+
+date_for_map = as.Date("2020-12-14")
+
+# Create variable from US confirmed data
+nation_daily_death_cumulative = us_daily_death_clean
+
+# Add a cumulative column at end
+nation_daily_death_cumulative$Cumulative=rowSums(nation_daily_death_cumulative[,13:ncol(nation_daily_death_cumulative)], na.rm=T)
+
+# Add a cumulative cases / population column at end
+
+nation_daily_death_cumulative$cumPerCap = nation_daily_death_cumulative[,ncol(nation_daily_death_cumulative)] / nation_population
+
+
+# Ratio = 7-day averaged daily confirmed cases / population
+nation_daily_confirmed_rate_avg_selected[,12] = nation_daily_confirmed_rate_avg_selected[,12] / nation_population
+
+#nation_daily_confirmed_rate_avg_selected[,12][nation_daily_confirmed_rate_avg_selected[,12] == 0] = NA
+
+colnames(nation_daily_death_cumulative)[342] = "Ratio"
+
+# joint the averaged daily confirmed cases with the shape file for all US counties
+nation_daily_death_cumulative <- left_join(nation_daily_death_cumulative, counties, by = "county_fips")
+
+range(nation_daily_death_cumulative$Ratio*100, na.rm=T)
+
+nation_daily_confirmed_rate_avg_selected_joint %>%
+  ggplot(aes(long, lat, group = group)) +
+  geom_polygon(aes(fill = (Ratio*100)), show.legend = T) +
+  geom_polygon(
+    data = urbnmapr::states, mapping = aes(x = long, y = lat, group = group),
+    fill = NA, color = 'black', size = 1
+  ) +
+  scale_fill_gradient(low = "yellow", high = "red", na.value = "grey90", trans = "sqrt"
+                      ###, limits = c(0.00038, 1.158)
+  )+
+  coord_map() +
+  labs(fill = expression("Deaths per capita (%)")) +
+  ggtitle(paste0("Cumulative deaths per capita (%)", ", ", date_for_map))
+
+```
+
+
+Make comprehensive county dataset to analyze:
+
+
+Also:
+
+National unemployment county level by month generator
+
+
+```{r}
+
+rm(list=ls())
+
+##Load Part 1 Environment
+
+load(file = "C:/Users/David/Desktop/Pstat 120c/120c Final Project/R Code/Part1Environment(Dec16).RData")
+
+
+# Import combined county cumulative cases and deaths
+
+Combined_County_Cumulative <- read.csv('C:/Users/David/Desktop/Pstat 120c/120c Final Project/Images for PDF/Combined_County_Cumulative.csv', 
+                      row.names = 1)
+
+#Import unemployment table
+
+County_Unemployment_2020 <- read_excel('Data/BLS_Unemployment_by_County_2020.xls')
+
+# Join unemployment and combined cumulative tables
+
+County_Unemployment_and_Combined_Cumulative <- left_join(Combined_County_Cumulative, County_Unemployment_2020, by = "county_fips" ) 
+
+
+# Add population column
+
+County_Unemployment_and_Combined_Cumulative$population <- nation_population
+
+
+## Examine average of high-population counties vs low-population counties
+
+Small_CUCC = dplyr::filter(County_Unemployment_and_Combined_Cumulative, population < 30000)
+
+Big_CUCC = dplyr::filter(County_Unemployment_and_Combined_Cumulative, population >= 30000)
+
+Big_Deaths = mean(Big_CUCC$Deaths_per_Cap)
+Big_Cases = mean(Big_CUCC$Cases_per_Cap)
+
+Small_Deaths = mean(Small_CUCC$Deaths_per_Cap)
+Small_Cases = mean(Small_CUCC$Cases_per_Cap)
+
+Avg_Unemployment_National = mean(County_Unemployment_and_Combined_Cumulative$Unemployment_Rate_Oct2020, na.rm=TRUE)
+
+# The above is actually the wrong value. Overrates rural counties by taking each county rate as equal in the mean. Need to find rate of total unemployed over total employed people.
+
+Unemployment_Oct = sum(County_Unemployment_and_Combined_Cumulative$Unemployed_Oct2020, na.rm=TRUE)
+
+Employment_Oct = sum(County_Unemployment_and_Combined_Cumulative$Employed_Oct2020, na.rm=TRUE)
+
+Unemployment_Oct/Employment_Oct
+  
+## Join FIPS shape data and make graph
+
+# Change CUCC county_fips to character so join works
+
+County_Unemployment_and_Combined_Cumulative$county_fips <- as.character(County_Unemployment_and_Combined_Cumulative$county_fips)
+
+# Reintroduce county_fips leading zero on CUCC
+
+County_Unemployment_and_Combined_Cumulative[1:317,5] <- paste0("0", County_Unemployment_and_Combined_Cumulative[1:317,5]) 
+
+# Join
+
+CUCC_Map <- left_join(County_Unemployment_and_Combined_Cumulative, counties, by = "county_fips")
+
+
+# Create graph
+
+range(CUCC_Map$Unemployed_Oct2020, na.rm=T)
+
+CUCC_Map %>%
+  ggplot(aes(long, lat, group = group)) +
+  geom_polygon(aes(fill = (Unemployed_Oct2020)), show.legend = T) +
+  geom_polygon(
+    data = urbnmapr::states, mapping = aes(x = long, y = lat, group = group),
+    fill = NA, color = 'black', size = 1
+  ) +
+  scale_fill_gradient(low = "yellow", high = "red", na.value = "grey90", trans = "log10"
+                      ###, limits = c(0.00038, 1.158)
+  )+
+  coord_map() +
+  labs(fill = expression("Unemployed individuals")) +
+  ggtitle(paste0("Unemployed per county, October 2020"))
+
+```
+
+
+
+
+2a)
+```{r}
+
+# 2a Dates Michigan -----------------------------------------------------
+
+##get  dates you want to analyze  
+start_date = as.Date("2020-7-20")
+
+end_date = as.Date("2020-10-26")
+
+
+##the deaths and confirmed cases for the state on the selected dates
+MI_death_selected = MI_death_sum[1 + which(all_dates %in% seq.Date(start_date, end_date, by=1))]
+MI_confirmed_selected = MI_confirmed_sum[which(all_dates %in% seq.Date(start_date, end_date, by=1))]
+
+MI_death_selected=as.numeric(MI_death_selected)
+MI_confirmed_selected=as.numeric(MI_confirmed_selected)
+
+##plot cumulative confirmed cases and death
+date_selected=seq.Date(start_date, end_date, by=1)
+par(mfrow=c(1,2))
+
+##daily increase between each date
+daily_date_selected=date_selected[2:length(date_selected)]
+
+##let's get the daily confirmed cases 
+MI_confirmed_selected_daily=MI_confirmed_selected[2:length(MI_confirmed_selected)]-MI_confirmed_selected[1:(length(MI_confirmed_selected)-1)]
+##create a data frame
+daily_confirmed_MI_df = data.frame(date = daily_date_selected, value = MI_confirmed_selected_daily)
+
+##let's get the daily death cases 
+MI_death_selected_daily=MI_death_selected[2:length(MI_death_selected)]-MI_death_selected[1:(length(MI_death_selected)-1)]
+##create a data frame
+daily_death_MI_df = data.frame(date = daily_date_selected, value = MI_death_selected_daily)
+
+
+##let's obtain a seven-day average of the smoothed version of the confirmed cases and deaths
+
+MI_confirmed_selected_daily_avg = data_seven_day_smoothing(MI_confirmed_selected_daily)
+
+daily_confirmed_MI_smoothed_df = data.frame(date = daily_date_selected, value = MI_confirmed_selected_daily_avg)
+
+MI_death_selected_daily_avg = data_seven_day_smoothing(MI_death_selected_daily)
+
+daily_death_MI_smoothed_df = data.frame(date = daily_date_selected, value = MI_death_selected_daily_avg)
+
+
+# 2.a.1 7-day avg MI -------------------------------------------
+
+##plot the smoothed version 
+
+###daily confirmed cases in MI
+daily_confirmed_MI_smoothed_df %>%
+  ggplot(aes(x=date, y=value)) +
+  geom_bar(stat = 'identity', color="white",  fill="#ff8540", width = 1) +
+  ylab("7-day avg daily cases, MI")+
+  xlab("Date")+ 
+  theme(text = element_text(size = 20),
+        legend.title = element_text(size = 15),
+        legend.text = element_text(size = 15),
+        legend.key.width=unit(1,"cm"),
+        axis.text.y = element_text(angle=90, hjust=1))
+
+##get the test positive rates 
+
+
+############this is state-level positive rate
+###deal with positive rate 
+
+
+MI_test =   
+  dplyr::filter(nation_test, state == "WI")
+
+
+MI_test_aggregated = MI_test %>%
+  group_by(date) %>%
+  summarise_each(funs(sum), positiveIncrease, totalTestResultsIncrease)
+
+
+MI_test_aggregated$positiveIncrease_7_day_avg = data_seven_day_smoothing(MI_test_aggregated$positiveIncrease)
+
+MI_test_aggregated$totalTestResultsIncrease_7_day_avg = data_seven_day_smoothing(MI_test_aggregated$totalTestResultsIncrease)
+
+MI_test_aggregated$positive_rate = MI_test_aggregated$positiveIncrease_7_day_avg / MI_test_aggregated$totalTestResultsIncrease_7_day_avg
+
+
+# ##reverse the sequence because it start from the current date
+# nation_daily_test_selected=rev(us_test_PositiveRateus_test_PositiveRate[nation_test_aggregated$date>=(start_date) & nation_test_aggregated$date<=end_date])
+
+
+###let's smooth it and get the seven day average 
+MI_test_daily_test_smoothed = data_seven_day_smoothing(MI_test_aggregated$totalTestResultsIncrease)
+MI_test_daily_positive_smoothed  = data_seven_day_smoothing(MI_test_aggregated$positiveIncrease)
+
+
+##note that the following sequences start from the latest day
+MI_test_PositiveRate_smoothed = MI_test_daily_positive_smoothed / MI_test_daily_test_smoothed
+
+MI_test_PositiveRate_smoothed_selected=MI_test_PositiveRate_smoothed[nation_test_aggregated$date>=(start_date) & nation_test_aggregated$date<=end_date]
+
+
+# 2.a.2 7-day test+ MI-------------------------------------------------------------------
+
+###plot  the smoothed positive rates 
+plot(date_selected, MI_test_PositiveRate_smoothed_selected,type='l',xlab='date',ylab='7-day averaged daily positive rate')
+
+
+```
+
+
+
+State 7-day smooth cases per capita generator
+
+```{r}
+
+# 2.b.1 MI 7-day cty map July 20 --------------------------------------------------
+
+###Let's see whether we can make a map for MI about the confirmed cases over county popultation
+### at a particular date
+
+# set the date for map the end date you selected before
+date_for_map = as.Date("2020-7-20")
+
+##Start of state-specific code
+
+##you can make the daily death cases to be zero if it is smaller than zero
+#us_daily_death_clean[us_daily_death_clean<0] = 0
+
+# select the daily confirm cases for CA counties
+MI_daily_confirm = us_daily_confirm_clean%>%
+  filter(Province_State == "Michigan")
+
+# This shape file contains the coordinates for county boundaries
+MI_shape_data = counties %>%
+  filter(state_name == "Michigan")
+
+# get the population for CA counties
+MI_population = us_daily_death_clean %>%
+  filter(Province_State == "Michigan")%>%
+  dplyr::select(Population)
+MI_population = as.numeric(MI_population$Population)
+
+# extract the daily confirmed cases on the selected date date_for_map
+MI_daily_confirm_selected = MI_daily_confirm[, c(1:11, 11+ which(all_dates == date_for_map))]
+
+# the Ratio = daily confirmed cases / population
+MI_daily_confirm_rate_selected = MI_daily_confirm_selected
+MI_daily_confirm_rate_selected[,12] = MI_daily_confirm_selected[,12]/MI_population
+MI_daily_confirm_rate_selected[,12][MI_daily_confirm_rate_selected[,12]==0]=NA
+colnames(MI_daily_confirm_rate_selected)[12] = "Ratio"
+
+##This is  the county and rate
+#MI_daily_confirm_rate_selected[,c(11,12)]
+
+# joint the daily confirmed cases with the shape file
+MI_daily_confirm_rate_selected_joint <- left_join(MI_daily_confirm_rate_selected, MI_shape_data, by = "county_fips")
+
+# find the lower and upper limits of the ratio
+range(MI_daily_confirm_rate_selected$Ratio*100, na.rm = T)
+
+
+# calculate the 7-day averaged daily confirm cases
+MI_daily_confirm_avg = MI_daily_confirm
+MI_daily_confirm_avg[, 13:dim(MI_daily_confirm)[2]] = t(apply(MI_daily_confirm[,13:dim(MI_daily_confirm)[2]], 1, data_seven_day_smoothing))
+
+# extract the averaged daily confirmed cases on the selected date
+MI_daily_confirm_avg_selected = MI_daily_confirm_avg[, c(1:11, 11+ which(all_dates == date_for_map))]
+
+# the Ratio = averaged daily confirmed cases / population
+MI_daily_confirm_rate_avg_selected = MI_daily_confirm_avg_selected
+MI_daily_confirm_rate_avg_selected[, 12] = MI_daily_confirm_avg_selected[, 12]/MI_population
+MI_daily_confirm_rate_avg_selected[,12][MI_daily_confirm_rate_avg_selected[,12]==0]=NA
+colnames(MI_daily_confirm_rate_avg_selected)[12] = "Ratio"
+
+## county and rate
+#MI_daily_confirm_rate_avg_selected[,c(11,12)]
+
+index_largest=which(MI_daily_confirm_rate_avg_selected[,c(12)]==max(MI_daily_confirm_rate_avg_selected[,c(12)]))
+#MI_daily_confirm_rate_avg_selected[index_largest,c(11,12)]
+
+# joint the averaged daily confirmed cases with the shape file
+MI_daily_confirm_rate_avg_selected_joint <- left_join(MI_daily_confirm_rate_avg_selected, MI_shape_data, by = "county_fips")
+
+
+# find the lower and upper limits of the ratio
+range(MI_daily_confirm_rate_avg_selected$Ratio*100, na.rm = T)
+
+MI_daily_confirm_rate_avg_selected_joint %>%
+  ggplot(aes(long, lat, group = group, fill = Ratio*100)) +
+  scale_fill_gradient(low = "yellow", high = "red", na.value = "grey90")+
+  geom_polygon(col = "black") +
+  coord_map(projection = "albers", lat0 = 10, lat1 = 45) +
+  labs(fill = expression("Ratio (%)")) +
+  ggtitle(paste0("7-day avg per capita cases in MI", ", ", date_for_map))+
+  xlab("lon") +ylab("lat" )
+
+
+# 2.b.2 MI cty map Oct 20 -------------------------------------------------
+
+# set the date for map the end date you selected before
+date_for_map = as.Date("2020-10-20")
+
+##Start of state-specific code
+
+##you can make the daily death cases to be zero if it is smaller than zero
+#us_daily_death_clean[us_daily_death_clean<0] = 0
+
+# select the daily confirm cases for CA counties
+MI_daily_confirm = us_daily_confirm_clean%>%
+  filter(Province_State == "Michigan")
+
+# This shape file contains the coordinates for county boundaries
+MI_shape_data = counties %>%
+  filter(state_name == "Michigan")
+
+# get the population for CA counties
+MI_population = us_daily_death_clean %>%
+  filter(Province_State == "Michigan")%>%
+  dplyr::select(Population)
+MI_population = as.numeric(MI_population$Population)
+
+# extract the daily confirmed cases on the selected date date_for_map
+MI_daily_confirm_selected = MI_daily_confirm[, c(1:11, 11+ which(all_dates == date_for_map))]
+
+# the Ratio = daily confirmed cases / population
+MI_daily_confirm_rate_selected = MI_daily_confirm_selected
+MI_daily_confirm_rate_selected[,12] = MI_daily_confirm_selected[,12]/MI_population
+MI_daily_confirm_rate_selected[,12][MI_daily_confirm_rate_selected[,12]==0]=NA
+colnames(MI_daily_confirm_rate_selected)[12] = "Ratio"
+
+##This is  the county and rate
+#MI_daily_confirm_rate_selected[,c(11,12)]
+
+# joint the daily confirmed cases with the shape file
+MI_daily_confirm_rate_selected_joint <- left_join(MI_daily_confirm_rate_selected, MI_shape_data, by = "county_fips")
+
+# find the lower and upper limits of the ratio
+range(MI_daily_confirm_rate_selected$Ratio*100, na.rm = T)
+
+
+# calculate the 7-day averaged daily confirm cases
+MI_daily_confirm_avg = MI_daily_confirm
+MI_daily_confirm_avg[, 13:dim(MI_daily_confirm)[2]] = t(apply(MI_daily_confirm[,13:dim(MI_daily_confirm)[2]], 1, data_seven_day_smoothing))
+
+# extract the averaged daily confirmed cases on the selected date
+MI_daily_confirm_avg_selected = MI_daily_confirm_avg[, c(1:11, 11+ which(all_dates == date_for_map))]
+
+# the Ratio = averaged daily confirmed cases / population
+MI_daily_confirm_rate_avg_selected = MI_daily_confirm_avg_selected
+MI_daily_confirm_rate_avg_selected[, 12] = MI_daily_confirm_avg_selected[, 12]/MI_population
+MI_daily_confirm_rate_avg_selected[,12][MI_daily_confirm_rate_avg_selected[,12]==0]=NA
+colnames(MI_daily_confirm_rate_avg_selected)[12] = "Ratio"
+
+## county and rate
+#MI_daily_confirm_rate_avg_selected[,c(11,12)]
+
+index_largest=which(MI_daily_confirm_rate_avg_selected[,c(12)]==max(MI_daily_confirm_rate_avg_selected[,c(12)]))
+#MI_daily_confirm_rate_avg_selected[index_largest,c(11,12)]
+
+# joint the averaged daily confirmed cases with the shape file
+MI_daily_confirm_rate_avg_selected_joint <- left_join(MI_daily_confirm_rate_avg_selected, MI_shape_data, by = "county_fips")
+
+
+# find the lower and upper limits of the ratio
+range(MI_daily_confirm_rate_avg_selected$Ratio*100, na.rm = T)
+
+MI_daily_confirm_rate_avg_selected_joint %>%
+  ggplot(aes(long, lat, group = group, fill = Ratio*100)) +
+  scale_fill_gradient(low = "yellow", high = "red", na.value = "grey90")+
+  geom_polygon(col = "black") +
+  coord_map(projection = "albers", lat0 = 10, lat1 = 45) +
+  labs(fill = expression("Ratio (%)")) +
+  ggtitle(paste0("7-day avg per capita cases in MI", ", ", date_for_map))+
+  xlab("lon") +ylab("lat" )
+
+
+```
+
+
+Daily case state level generator
+
+```{r}
+
+# 3.a.1 cumulative FL -----------------------------------------------------
+
+
+##get  dates you want to analyze  
+start_date = as.Date("2020-7-20")
+
+end_date = as.Date("2020-10-26")
+
+
+##the deaths and confirmed cases for the state on the selected dates
+FL_death_selected = FL_death_sum[1 + which(all_dates %in% seq.Date(start_date, end_date, by=1))]
+FL_confirmed_selected = FL_confirmed_sum[which(all_dates %in% seq.Date(start_date, end_date, by=1))]
+
+FL_death_selected=as.numeric(FL_death_selected)
+FL_confirmed_selected=as.numeric(FL_confirmed_selected)
+
+
+##plot cumulative confirmed cases and death
+date_selected=seq.Date(start_date, end_date, by=1)
+par(mfrow=c(1,2))
+plot(date_selected,FL_confirmed_selected,xlab='date',ylab='cumulative observed confirmed cases',type='l')
+
+
+
+# 3.a2 redoing dates --------------------------------------
+
+##get  dates you want to analyze  
+start_date = as.Date("2020-7-20")
+
+end_date = as.Date("2020-10-22")
+
+
+##the deaths and confirmed cases for the state on the selected dates
+FL_death_selected = FL_death_sum[1 + which(all_dates %in% seq.Date(start_date, end_date, by=1))]
+FL_confirmed_selected = FL_confirmed_sum[which(all_dates %in% seq.Date(start_date, end_date, by=1))]
+
+FL_death_selected=as.numeric(FL_death_selected)
+FL_confirmed_selected=as.numeric(FL_confirmed_selected)
+
+
+##plot cumulative confirmed cases and death
+date_selected=seq.Date(start_date, end_date, by=1)
+par(mfrow=c(1,2))
+
+
+##daily increase between each date
+daily_date_selected=date_selected[2:length(date_selected)]
+
+##let's get the daily confirmed cases 
+FL_confirmed_selected_daily=FL_confirmed_selected[2:length(FL_confirmed_selected)]-FL_confirmed_selected[1:(length(FL_confirmed_selected)-1)]
+##create a data frame
+daily_confirmed_FL_df = data.frame(date = daily_date_selected, value = FL_confirmed_selected_daily)
+
+##let's get the daily death cases 
+FL_death_selected_daily=FL_death_selected[2:length(FL_death_selected)]-FL_death_selected[1:(length(FL_death_selected)-1)]
+##create a data frame
+daily_death_FL_df = data.frame(date = daily_date_selected, value = FL_death_selected_daily)
+
+
+##let's obtain a seven-day average of the smoothed version of the confirmed cases and deaths
+
+FL_confirmed_selected_daily_avg = data_seven_day_smoothing(FL_confirmed_selected_daily)
+
+daily_confirmed_FL_smoothed_df = data.frame(date = daily_date_selected, value = FL_confirmed_selected_daily_avg)
+
+FL_death_selected_daily_avg = data_seven_day_smoothing(FL_death_selected_daily)
+
+daily_death_FL_smoothed_df = data.frame(date = daily_date_selected, value = FL_death_selected_daily_avg)
+
+
+##plot the smoothed version 
+
+###daily confirmed cases in FL
+daily_confirmed_FL_smoothed_df %>%
+  ggplot(aes(x=date, y=value)) +
+  geom_bar(stat = 'identity', color="white",  fill="#ff8540", width = 1) +
+  ylab("7-day avg daily cases in  FL")+
+  xlab("Date")+ 
+  theme(text = element_text(size = 20),
+        legend.title = element_text(size = 15),
+        legend.text = element_text(size = 15),
+        legend.key.width=unit(1,"cm"),
+        axis.text.y = element_text(angle=90, hjust=1))
+
+
+##get the test positive rates 
+
+
+############this is state-level positive rate
+###deal with positive rate 
+
+
+FL_test =   
+  dplyr::filter(nation_test, state == "FL")
+
+
+FL_test_aggregated = FL_test %>%
+  group_by(date) %>%
+  summarise_each(funs(sum), positiveIncrease, totalTestResultsIncrease)
+
+
+FL_test_aggregated$positiveIncrease_7_day_avg = data_seven_day_smoothing(FL_test_aggregated$positiveIncrease)
+
+FL_test_aggregated$totalTestResultsIncrease_7_day_avg = data_seven_day_smoothing(FL_test_aggregated$totalTestResultsIncrease)
+
+FL_test_aggregated$positive_rate = FL_test_aggregated$positiveIncrease_7_day_avg / FL_test_aggregated$totalTestResultsIncrease_7_day_avg
+
+
+# ##reverse the sequence because it start from the current date
+# nation_daily_test_selected=rev(us_test_PositiveRateus_test_PositiveRate[nation_test_aggregated$date>=(start_date) & nation_test_aggregated$date<=end_date])
+
+
+###let's smooth it and get the seven day average 
+FL_test_daily_test_smoothed = data_seven_day_smoothing(FL_test_aggregated$totalTestResultsIncrease)
+FL_test_daily_positive_smoothed  = data_seven_day_smoothing(FL_test_aggregated$positiveIncrease)
+
+
+##note that the following sequences start from the latest day
+FL_test_PositiveRate_smoothed = FL_test_daily_positive_smoothed / FL_test_daily_test_smoothed
+
+FL_test_PositiveRate_smoothed_selected=FL_test_PositiveRate_smoothed[nation_test_aggregated$date>=(start_date) & nation_test_aggregated$date<=end_date]
+
+
+# 3.a.2 7-day test+ FL-------------------------------------------------------------------
+
+  ###plot  the smoothed positive rates 
+  plot(date_selected, FL_test_PositiveRate_smoothed_selected,type='l',xlab='date',ylab='7-day avg daily positive rate, FL')
+  
+
+
+```
+County cumulative case generator
+
+```{r}
+# 4.a.1 SB cumulative cases Mar21-Oct31 ----------------------------------------------------------------
+
+start_date = as.Date("2020--21")
+
+end_date = as.Date("2020-10-31")
+
+date_selected=seq.Date(start_date, end_date, by=1)
+
+
+#####county level analysis 
+##let's look at Santa Barbara 
+state_name = "California"
+state_name_short = "CA"
+county_name = "Santa Barbara"
+
+##get the death and confirmed cases
+county_death = us_death%>%
+  filter(Admin2 == county_name, Province_State == state_name) %>%
+  select(starts_with("x"))
+county_confirmed = us_confirm %>%
+  filter(Admin2 == county_name, Province_State == state_name) %>%
+  select(starts_with("x"))
+
+county_death_sum = apply(county_death, 2, sum)
+
+county_confirmed_sum = apply(county_confirmed, 2, sum)
+
+
+county_death_selected = county_death_sum[which(all_dates %in% seq.Date(start_date, end_date, by=1))]
+county_confirmed_selected = county_confirmed_sum[which(all_dates %in% seq.Date(start_date, end_date, by=1))]
+
+county_death_selected=as.numeric(county_death_selected)
+county_confirmed_selected=as.numeric(county_confirmed_selected)
+
+
+par(mfrow=c(1,2))
+plot(date_selected,county_confirmed_selected,xlab='date',ylab='cumulative observed confirmed cases',main=county_name,type='l')
+```
+
+
+```{r}
+#a1,2, run with part 1
+
+# 4.a.2 SB daily cases Mar21-Oct31 ------------------------------------------------
+
+##You may plot the daily confirmed by histogram
+
+county_confirmed_selected_daily=county_confirmed_selected[2:length(county_confirmed_selected)]-county_confirmed_selected[1:(length(county_confirmed_selected)-1)]
+daily_date_selected=date_selected[2:length(date_selected)]
+
+daily_confirmed_county_df = data.frame(date = daily_date_selected, value = county_confirmed_selected_daily)
+
+###plot the daily confirmed cases
+##you can save it as a png
+#png(filename = paste0(file_path, "US_daily_confirmed_cases.png"), width = 900, height = 600)
+daily_confirmed_county_df %>%
+  ggplot(aes(x=date, y=value)) +
+  geom_bar(stat = 'identity', color="white",  fill="#ff8540", width = 1) +
+  ylab("Daily confirmed cases in  Santa Barbara")+
+  xlab("Date")+ 
+  theme(text = element_text(size = 20),
+        legend.title = element_text(size = 15),
+        legend.text = element_text(size = 15),
+        legend.key.width=unit(1,"cm"),
+        axis.text.y = element_text(angle=90, hjust=1))
+```
+ 
+Create graphs from SIR model in examined counties:
+ 
+```{r}
+rm(list=ls())
+
+##Load Part 2 Environment
+
+#load(file = "C:/Users/David/Desktop/Pstat 120c/120c Report 2/Part2Enviro.RData")
+
+
+source(file = "C:/Users/David/Desktop/Pstat 120c/120c Final Project/R Code/covid-19-20201128/data_and_functions/functions_covid19.R")
+
+set.seed(1)
+
+
+# ii Select State, County, Date range -------------------------------------------------
+
+# select the state name, its abbreviation and the county name
+state_name = "Colorado"
+state_name_short = "CO"
+county_name_selected = "Crowley"
+
+# define the start and end date
+start_date_ini = as.Date("2020-09-10")
+end_date = as.Date("2020-12-10")
+
+# define the length of the prediction period
+prediction_length = 0
+
+# define the length of the training period
+fitted_days_beta=180 ###we will recent 180 days to learn parameter 
+
+# predefined the epidemiological parameters. DON'T change them unless you are confident to do so.
+gamma = 0.2
+theta = 0.1
+delta = 0.0066
+
+
+# iii Make variables ------------------------------------------------------
+
+
+# download death toll and test data from JHU dataset and COVID-19 tracking project, respectively
+base = 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/'
+death = 'time_series_covid19_deaths_'
+confirm = 'time_series_covid19_confirmed_'
+
+# download death and confirmed data from JHU
+us_death = read.csv(paste0(base,death,"US.csv"))
+us_confirm = read.csv(paste0(base,confirm,"US.csv"))
+
+covid19_project_url = "https://api.covidtracking.com/v1/states/daily.csv"
+
+# get state level test data from COVID-19 tracking project
+covid_19_project = read.csv(covid19_project_url)
+covid_19_project$date = as.Date(as.character(covid_19_project$date), "%Y %m %d")
+
+file_pow_param_path = "C:/Users/David/Desktop/Pstat 120c/120c Report 2/covid-19-20201128/data_and_functions/"
+file_sudden_death_path = "C:/Users/David/Desktop/Pstat 120c/120c Report 2/covid-19-20201128/data_and_functions/"
+
+# counties that have sudden death increase
+county_sudden_death = read.csv(paste0(file_sudden_death_path,"counties with sudden death increase.csv" ) )
+county_sudden_death$state = as.character(county_sudden_death$state)
+
+# read the file for optim power parameter in US states
+us_pow_param = read.csv(paste0(file_pow_param_path, "power parameter in US states.csv"))
+us_pow_param$state_name = as.character(us_pow_param$state_name)
+
+# clean the death data
+us_death = clean_us_death(us_death)
+
+# extract the dates in the death data
+col_names = colnames(us_death)
+all_dates = as.Date(paste0(str_sub(col_names[13:dim(us_death)[2]], 2, -1), "20"), tryFormats = c("%m.%d.%Y"))
+
+# calculate the death pre million
+
+death_rate = function(x){x/us_death$Population*10^6}
+us_death_rate = us_death %>%
+  dplyr::mutate_at(vars(starts_with("X")), death_rate)
+
+n_ini = as.numeric(end_date - start_date_ini) + 1
+
+# get the optim power parameter in US states
+power_parameter = as.numeric(us_pow_param$pow_param[us_pow_param$state_name == state_name])
+
+# get state level test data from COVID-19 tracking project
+state_test = covid_19_project %>%
+  dplyr::filter(state == state_name_short) %>%
+  dplyr::select(date, totalTestResultsIncrease, positiveIncrease)
+
+# clean the test data
+state_test$totalTestResultsIncrease[state_test$totalTestResultsIncrease<0] = abs(state_test$totalTestResultsIncrease[state_test$totalTestResultsIncrease<0])
+state_test$positiveIncrease[state_test$positiveIncrease<0] = abs(state_test$positiveIncrease[state_test$positiveIncrease<0])
+
+state_test$daily_test_avg = rep(0, dim(state_test)[1])
+state_test$daily_positive_avg = rep(0, dim(state_test)[1])
+
+state_test$daily_test_avg = data_seven_day_smoothing(state_test$totalTestResultsIncrease)
+state_test$daily_positive_avg = data_seven_day_smoothing(state_test$positiveIncrease)
+
+state_test$PositiveRate = state_test$daily_positive_avg / state_test$daily_test_avg
+
+# change NAs to the positive rate in the following days 
+for (i in 2:(dim(state_test)[1])) {
+  if(is.na(state_test$PositiveRate[i]) | is.infinite(state_test$PositiveRate[i])){
+    state_test$PositiveRate[i] = state_test$PositiveRate[i-1]
+  }
+}
+
+state_test$PositiveRate[is.na(state_test$PositiveRate)] = state_test$PositiveRate[which(!is.na(state_test$PositiveRate))[1]]
+
+# change negative rate to positive
+state_test$PositiveRate = abs(state_test$PositiveRate)
+# change positive rate larger tha 1 to 1
+state_test$PositiveRate[state_test$PositiveRate>1] = 1 / state_test$PositiveRate[state_test$PositiveRate>1]
+
+state_death = us_death %>%
+  dplyr::filter(Province_State == state_name)
+
+state_confirmed = us_confirm %>%
+  dplyr::filter(Province_State == state_name)
+
+# Part 1: Data Cleaning
+
+# select the county-level death and confirmed cases
+county_death_raw = state_death %>%
+  dplyr::filter(Admin2 == county_name_selected)
+
+county_confirm_raw = state_confirmed %>%
+  dplyr::filter(Admin2 == county_name_selected)
+
+# the real start date is defined as the date that the state confirmed cases is no less than 5 for the first time
+start_date=all_dates[which(as.numeric(county_confirm_raw[12:length(county_confirm_raw)])>=5)[1]]
+
+if (start_date < start_date_ini){
+  start_date = start_date_ini
+}
+
+# the length of real training period
+n = as.numeric(end_date - start_date) + 1
+
+# get county data from real start_date to end_date
+
+death_with_county_names = get_output_same_time_zone(
+  data_type = "death",
+  state_name = state_name,
+  start_date = start_date,
+  state_name_short = state_name_short,
+  duration = n ,
+  training_length = n,
+  criterion_death = 2,
+  smoothness = F
+)
+
+death_with_county_names_all = get_output_same_time_zone(
+  data_type = "death",
+  state_name = state_name,
+  start_date = start_date,
+  state_name_short = state_name_short,
+  duration = n+prediction_length ,
+  training_length = n,
+  criterion_death = 2,
+  smoothness = F
+)
+
+
+county_names = death_with_county_names[[2]]
+
+if(!(county_name_selected %in% county_names)){
+  stop("Sorry, we cannot analysis the county you select since its death toll is less than 2.")
+}
+
+each_index = which(county_names == county_name_selected)
+
+state_confirmed_selected = state_confirmed %>%
+  dplyr::filter(Admin2 %in% county_names)
+
+state_confirmed_selected = state_confirmed_selected[,12:dim(state_confirmed_selected)[2]]
+
+state_confirmed_selected = state_confirmed_selected[, which(all_dates %in% seq.Date(start_date, end_date, by=1))]
+
+SIRDC_county_population = us_death %>%
+  filter(Admin2 == county_name_selected, Province_State == state_name) %>%
+  dplyr::select(Population)
+
+# county population
+N = SIRDC_county_population$Population
+
+# county death and confirmed cases from real start date to end date
+death_selected = death_with_county_names[[1]][each_index, ]
+confirm_selected = as.numeric(state_confirmed_selected[each_index,])
+
+# eliminate decreasing trend in the county death data
+for( i in 1:(n-1)){
+  if (death_selected[i+1]<death_selected[i]){
+    death_selected[i+1] = death_selected[i]
+  }
+}
+
+# eliminate decreasing trend in the county confirm data
+for( i in 1:(n-1)){
+  if (confirm_selected[i+1]<confirm_selected[i]){
+    confirm_selected[i+1] = confirm_selected[i]
+  }
+}
+
+# eliminate the sudden increase of death in several prespecified counties
+if(paste0(state_name_short, county_name_selected) %in%   paste0(county_sudden_death$state, county_sudden_death$county)){
+  daily_death = diff(death_selected)
+  sudden_increase_index = which(daily_death==max(daily_death))[1]
+  daily_death[(sudden_increase_index-13):(sudden_increase_index-1)] = daily_death[(sudden_increase_index-13):(sudden_increase_index-1)] + daily_death[sudden_increase_index]/14
+  daily_death[sudden_increase_index] = daily_death[sudden_increase_index]/14
+  death_selected = c(death_selected[1], cumsum(daily_death) + death_selected[1])
+}
+
+# smooth the confirm cases
+daily_confirm_selected = diff(confirm_selected)
+daily_confirm_selected_avg = data_seven_day_smoothing(daily_confirm_selected)
+unadjusted_confirm_selected_smoothed = c(confirm_selected[1], cumsum(daily_confirm_selected_avg) + confirm_selected[1])
+
+daily_positive_rate_selected = rep(0,n)
+
+# extract the positive rate on selected date
+daily_positive_rate_selected = rev(state_test$PositiveRate[state_test$date>=(start_date) & state_test$date<=end_date])
+
+# calculate the weights
+c_t_seq =  daily_positive_rate_selected^(power_parameter)
+
+# adjust the confirmed cases using positive_rate^{power_parameter}
+daily_confirm_selected = diff(confirm_selected)
+daily_adjusted_confirm_smoothed = data_seven_day_smoothing(daily_confirm_selected * c_t_seq[2:n] )
+confirm_selected_smoothed = c(c_t_seq[1] * confirm_selected[1], cumsum(daily_adjusted_confirm_smoothed) + c_t_seq[1] * confirm_selected[1])
+
+# eliminate decreasing trend in the smoothed county confirmed cases
+for(i in 2:n){
+  if (confirm_selected_smoothed[i]<confirm_selected_smoothed[i-1]){
+    confirm_selected_smoothed[i] = confirm_selected_smoothed[i-1]
+  }
+}
+
+# Part 2: Optimization
+
+
+# try constrained optimization
+ui = matrix(c(1,0,-1,0,1,-1), 3,2)
+ci = matrix(c(0,0, -((confirm_selected_smoothed[1]*N)/confirm_selected_smoothed[n] -  death_selected[1]-0.1)  ))
+
+I_0_ini = 1000
+R_0_ini = 1000
+
+if((I_0_ini + R_0_ini)> abs(ci[3])){
+  I_0_ini = abs(ci[3])/4
+  R_0_ini = abs(ci[3])/4
+}
+
+# do optimization
+m_approx = constrOptim(
+  c(I_0_ini, R_0_ini),
+  loss_approx_beta,
+  NULL,
+  ui = ui,
+  ci = ci,
+  death_cases = death_selected,
+  confirmed_cases = confirm_selected_smoothed,
+  unadjusted_confirm_selected_smoothed = unadjusted_confirm_selected_smoothed,
+  N_population = N,
+  trianing_length = n,
+  fixed_global_params = c(gamma, theta, delta),
+  penalty = F,
+  fitted_days= fitted_days_beta,
+  weight_loss=T
+)
+
+I_0 = m_approx$par[1]
+R_0 = m_approx$par[2]
+
+
+# iv Parameter Estimation? ------------------------------------------------
+
+# Part 3: Parameter Estimation: S_t, I_t, R_t, D_t, C_t and beta_t
+
+ratio = confirm_selected_smoothed[1]/(I_0+ R_0+ death_selected[1])
+
+ratio_real = confirm_selected[2]/(I_0+ R_0+ death_selected[1])
+
+# use ratio to adjust smoothed confirmed cases and get susceptible cases S_t
+estimated_confirm = confirm_selected_smoothed/ratio
+
+# make sure the adjusted confirmed cases is at least larger than the observed confirm cases
+for(i in 1:length(estimated_confirm)){
+  if (estimated_confirm[i] < unadjusted_confirm_selected_smoothed[i]){
+    estimated_confirm[i] = unadjusted_confirm_selected_smoothed[i]
+  }
+}
+
+S_t_seq = N - estimated_confirm
+
+# initial values of each compartment
+init_for_beta = c(S_t_seq[1], I_0, R_0, death_selected[1], 0)
+
+param_record_approx_for_beta = matrix(0, 5, n) # 5 rows: S_t, I_t, R_t, D_t, C_t
+param_record_approx_for_beta[,1] = init_for_beta
+param_record_approx_for_beta[1,] = S_t_seq
+
+# record the value of transmission rate
+approx_beta_seq = rep(0, n-1)
+
+# iterative approach for calculating the seq of compartments in SIRDC
+for (i in 1:(n-1)){
+  S_t_1 = param_record_approx_for_beta[1,i]
+  S_t_2 = param_record_approx_for_beta[1,i+1]
+  I_t_1 = param_record_approx_for_beta[2,i]
+  R_t_1 = param_record_approx_for_beta[3,i]
+  D_t_1 = param_record_approx_for_beta[4,i]
+  C_t_1 = param_record_approx_for_beta[5,i]
+  
+  if(I_t_1<1){
+    I_t_1 = 1
+  }
+  
+  beta_t_1_2 = uniroot(find_root_beta, c(0, 10^6), tol = 0.0001, param = c(S_t_1, S_t_2, I_t_1), N = N, gamma=gamma)
+  
+  I_t_2 = I_t_1 * exp(beta_t_1_2$root*(S_t_1 + S_t_2)/(2*N) - gamma)
+  R_t_2 = (2-theta)/(2+theta)*R_t_1 + gamma/(2+theta)*(I_t_1+I_t_2)
+  D_t_2 = D_t_1 + delta*theta*(R_t_1+R_t_2)/2
+  C_t_2 = C_t_1 + (1-delta)*theta*(R_t_1+R_t_2)/2
+  
+  param_record_approx_for_beta[2:5, i+1] = c(I_t_2, R_t_2, D_t_2, C_t_2)
+  approx_beta_seq[i] = beta_t_1_2$root
+}
+
+# calculate the smoothed transmission rate using 7 day average
+approx_beta_seq_smoothed = rollapply(approx_beta_seq, width = 7, by = 1, FUN = mean, align = "left")
+
+
+# v Death prediction ------------------------------------------------------
+
+param_record_approx_all = matrix(0, 5, n+prediction_length) # 5 rows: S_t, I_t, R_t, D_t, C_t
+param_record_approx_all[,1] = init_for_beta
+
+approx_beta_seq_all = c(approx_beta_seq, rep(approx_beta_seq[n-1], prediction_length))
+
+for (i in 1:(n+prediction_length-1)){
+  S_t_1 = param_record_approx_all[1,i]
+  I_t_1 = param_record_approx_all[2,i]
+  R_t_1 = param_record_approx_all[3,i]
+  D_t_1 = param_record_approx_all[4,i]
+  C_t_1 = param_record_approx_all[5,i]
+  
+  beta_t_1_2 = approx_beta_seq_all[i]
+  
+  if(I_t_1<1){
+    I_t_1 = 1
+  }
+  
+  S_t_2 = uniroot(find_root_S_t_2, c(0, N), tol = 0.0001, param = c(S_t_1, beta_t_1_2, I_t_1), N = N, gamma=gamma)
+  I_t_2 = I_t_1 * exp(beta_t_1_2*(S_t_1 + S_t_2$root)/(2*N) - gamma)
+  R_t_2 = (2-theta)/(2+theta)*R_t_1 + gamma/(2+theta)*(I_t_1+I_t_2)
+  D_t_2 = D_t_1 + delta*theta*(R_t_1+R_t_2)/2
+  C_t_2 = C_t_1 + (1-delta)*theta*(R_t_1+R_t_2)/2
+  
+  param_record_approx_all[, i+1] = c(S_t_2$root, I_t_2, R_t_2, D_t_2, C_t_2)
+  
+}
+
+
+
+date_seq_beta = seq.Date(start_date, end_date-1, by=1)
+date_seq_beta_smoothed = seq.Date(start_date+3, end_date-1-3, by=1)
+
+y_limit_R_t = c(min(approx_beta_seq/0.2), max(approx_beta_seq/0.2))
+
+##plot the effective reproduction number 7-day average
+plot(approx_beta_seq/0.2~date_seq_beta, type="p",ylim = y_limit_R_t, ylab = "R_t", xlab = "Date", main = paste0(county_names[each_index], ", population=", round(N/10^6,2),"M", ", Ratio = ", round(ratio_real,3)))
+lines(approx_beta_seq_smoothed/0.2~date_seq_beta_smoothed, col="blue")
+abline(h=1, lty=2,col="red")
+abline(h=0,lty=1,col="black")
+legend("topright", legend = c("Daily Approximated R_t", "7-day Averaged Approximated R_t"), pch = c(1,NA), lty=c(NA,1), col=c("black", "blue"))
+
+date_seq = seq.Date(start_date, end_date, by=1)
+
+
+# 4.a.3 SB fitted SIR Mar21-Oct31 -----------------------------------------
+
+plot(N-param_record_approx_for_beta[1,]~date_seq, ylim=c(0,24000), type="l", col="blue", xlab = "Date", ylab = "Infective Cases", main = paste0(county_names[each_index], ", population=", round(N/10^6,2),"M", ", Ratio = ", round(ratio_real,3)))
+lines(confirm_selected~date_seq, type="l", col="red")
+legend("topleft", legend = c("Estimated Confirmed Cases", "Observed Confirmed Cases"), lty = c(1,1), col = c("blue", "red"))
+
+##this is the estimated percentage between  people infected and confirmed
+confirm_selected[n]/(N-param_record_approx_for_beta[1,n])
+
+
+# 4.a.4 Forecast - observed cases SB --------------------------------------
+
+undetected_cases = N-param_record_approx_for_beta[1, length(date_seq)] - confirm_selected[length(date_seq)]
+undetected_cases
+
+# vi Fitted Death ----------------------------------------------------------
+
+
+
+###fitted death 
+ylimit_death = c(min(param_record_approx_for_beta[4,], death_selected), max(param_record_approx_for_beta[4,], death_selected))
+
+plot(param_record_approx_for_beta[4,]~date_seq,ylim = ylimit_death, type="l", col="blue", xlab = "Date", ylab = "Death Cases", main = paste0(county_names[each_index], ", population=", round(N/10^6,2),"M", ", Ratio = ", round(ratio_real,3)))
+lines(death_selected~date_seq, col = "red")
+legend("topleft", legend = c("Observed death toll", "Estimated death toll"), lty = c(1,1), col = c("red", "blue"))
+
+
+# 4.b.1 SB Sim death Nov1-21 ----------------------------------------------
+
+###fitted death and forecast death 
+date_seq_all = seq.Date(start_date, end_date+prediction_length, by=1)
+
+ylimit_death_all = c(min(param_record_approx_all[4,], death_selected), max(param_record_approx_all[4,], death_selected))
+
+plot(param_record_approx_all[4,]~date_seq_all,ylim = ylimit_death_all, type="l", col="blue", xlab = "Date", ylab = "Death Cases", main = paste0(county_names[each_index], ", population=", round(N/10^6,2),"M", ", Ratio = ", round(ratio_real,3)))
+lines(death_selected~date_seq, col = "red")
+lines(date_seq_all,death_with_county_names_all[[1]][each_index, ], 
+      col = "red",lty=2)
+abline(v = end_date+1, lty=2)
+legend("topleft", legend = c("Observed death toll", "Estimated death toll","Held-out death toll"), lty = c(1,1,2), col = c("red", "blue",'red'))
+
+
+
+# 4.a.3 SB fitted SIR Mar21-Oct31 -----------------------------------------
+
+plot(N-param_record_approx_for_beta[1,]~date_seq, ylim= c(0,N-param_record_approx_for_beta[1, length(date_seq)]), type="l", col="blue", xlab = "Date", ylab = "Infective Cases", main = paste0(county_names[each_index], ", population=", round(N/10^6,2),"M", ", Ratio = ", round(ratio_real,3)))
+lines(confirm_selected~date_seq, type="l", col="red")
+legend("topleft", legend = c("Estimated Confirmed Cases", "Observed Confirmed Cases"), lty = c(1,1), col = c("blue", "red"))
+
+##this is the estimated percentage between  people infected and confirmed
+#confirm_selected[n]/(N-param_record_approx_for_beta[1,n])
+
+
+# 4.a.4 Forecast - observed cases SB --------------------------------------
+
+#Model prediction of cases by Oct31
+N-param_record_approx_for_beta[1, length(date_seq)]
+
+#Calculate difference between model prediction and actual cases
+undetected_cases = N-param_record_approx_for_beta[1, length(date_seq)] - confirm_selected[length(date_seq)]
+undetected_cases
+```
+ 
+Based on the fit, 19,843 individuals have contracted the virus by Oct 31. By comparing this to the observed cases, the model predicts that 9,899 individuals have contracted the virus and have not been counted as an observed case.
+
+4b)
+```{r}
+# 4.b.1 SB Sim death Nov1-21 ----------------------------------------------
+
+###fitted death and forecast death 
+date_seq_all = seq.Date(start_date, end_date+prediction_length, by=1)
+
+ylimit_death_all = c(min(param_record_approx_all[4,], death_selected), max(param_record_approx_all[4,], death_selected))
+
+plot(param_record_approx_all[4,]~date_seq_all,ylim = ylimit_death_all, type="l", col="blue", xlab = "Date", ylab = "Death Cases", main = paste0(county_names[each_index], ", population=", round(N/10^6,2),"M", ", Ratio = ", round(ratio_real,3)))
+lines(death_selected~date_seq, col = "red")
+lines(date_seq_all[(n+1):(n+prediction_length-1) ],death_with_county_names_all[[1]][each_index,(n+1):(n+prediction_length-1) ], 
+      col = "red",lty=2)
+abline(v = end_date+1, lty=2)
+legend("topleft", legend = c("Observed death toll", "Estimated death toll","Held-out death toll"), lty = c(1,1,2), col = c("red", "blue",'red'))
+
+#Calculate predicted deaths by Nov21
+paste("Predicted deaths by Nov 21:", param_record_approx_all[4,length(date_seq_all)])
+
+```
+
+Looking at real cumulative death of the at-risk county.
+
+```{r}
+
+##Load Part 1 Environment
+
+load(file = "C:/Users/David/Desktop/Pstat 120c/120c Final Project/R Code/Part1Environment(Dec16).RData")
+
+#Real death toll Nov1-Nov21
+#b2, run with part 1
+
+start_date = as.Date("2020-11-1")
+
+end_date = as.Date("2020-11-21")
+
+date_selected=seq.Date(start_date, end_date, by=1)
+
+
+#####county level analysis 
+##let's look at Santa Barbara 
+state_name = "California"
+state_name_short = "CA"
+county_name = "Santa Barbara"
+
+##get the death and confirmed cases
+county_death = us_death%>%
+  filter(Admin2 == county_name, Province_State == state_name) %>%
+  select(starts_with("x"))
+county_confirmed = us_confirm %>%
+  filter(Admin2 == county_name, Province_State == state_name) %>%
+  select(starts_with("x"))
+
+county_death_sum = apply(county_death, 2, sum)
+
+county_confirmed_sum = apply(county_confirmed, 2, sum)
+
+
+county_death_selected = county_death_sum[which(all_dates %in% seq.Date(start_date, end_date, by=1))]
+county_confirmed_selected = county_confirmed_sum[which(all_dates %in% seq.Date(start_date, end_date, by=1))]
+
+county_death_selected=as.numeric(county_death_selected)
+county_confirmed_selected=as.numeric(county_confirmed_selected)
+
+
+##plot the data
+##There is a jump in death on July 31, see the news: 
+##https://www.ksby.com/news/coronavirus/santa-barbara-co-announces-28-previously-unreported-covid-19-related-deaths-discovered-in-data-review
+par(mfrow=c(1,2))
+#We can also plot cumulative deaths but we don't want that here.
+plot(date_selected,county_death_selected,xlab='date',ylab='cumulative death toll',main=county_name,type='l')
+
+real_death_Nov = 133
+
+```

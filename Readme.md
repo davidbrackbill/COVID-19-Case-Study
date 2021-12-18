@@ -1,5 +1,3 @@
-﻿# Full report
-
 <img src="https://github.com/davidbrackbill/COVID-19-Case-Study/blob/main/rm_images/Report-01.png?raw=true"/>
 
 <img src="https://github.com/davidbrackbill/COVID-19-Case-Study/blob/main/rm_images/Report-02.png?raw=true"/>
